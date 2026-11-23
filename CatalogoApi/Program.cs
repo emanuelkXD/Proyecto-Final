@@ -323,28 +323,38 @@ builder.Services.AddAuthentication(options =>
     };
 });
 
-var allowedProviders = GetConfig("REPORTE_ALLOWED_PROVIDERS", "ReporteAbraham:AllowedProviders", "Discord,Spotify")
-    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+HashSet<string> ParseCsvSet(string value) =>
+    value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-var allowedUsers = GetConfig("REPORTE_ALLOWED_USERS", "ReporteAbraham:AllowedUsers", string.Empty)
-    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+var allowedProviders = ParseCsvSet(
+    GetConfig("REPORTE_ALLOWED_PROVIDERS", "ReporteAbraham:AllowedProviders", "Discord,Spotify"));
+var allowedUsers = ParseCsvSet(
+    GetConfig("REPORTE_ALLOWED_USERS", "ReporteAbraham:AllowedUsers", string.Empty));
 
-builder.Services.AddAuthorization(options =>
+var allowedMarcoProviders = ParseCsvSet(
+    GetConfig("REPORTE_MARCO_ALLOWED_PROVIDERS", "ReporteMarco:AllowedProviders", "Dropbox,Slack"));
+var allowedMarcoUsers = ParseCsvSet(
+    GetConfig("REPORTE_MARCO_ALLOWED_USERS", "ReporteMarco:AllowedUsers", string.Empty));
+
+void AddReportePolicy(
+    Microsoft.AspNetCore.Authorization.AuthorizationOptions authOptions,
+    string policyName,
+    HashSet<string> providers,
+    HashSet<string> users)
 {
-    options.AddPolicy("ReporteAbrahamPolicy", policy =>
+    authOptions.AddPolicy(policyName, policy =>
     {
         policy.RequireAuthenticatedUser();
         policy.RequireAssertion(context =>
         {
             var provider = context.User.FindFirst("provider")?.Value;
-            if (!string.IsNullOrWhiteSpace(provider) && allowedProviders.Contains(provider))
+            if (!string.IsNullOrWhiteSpace(provider) && providers.Contains(provider))
             {
                 return true;
             }
 
-            if (allowedUsers.Count > 0)
+            if (users.Count > 0)
             {
                 var userIdentifiers = new[]
                 {
@@ -358,7 +368,7 @@ builder.Services.AddAuthorization(options =>
                     context.User.FindFirst("id")?.Value
                 };
 
-                if (userIdentifiers.Any(u => !string.IsNullOrWhiteSpace(u) && allowedUsers.Contains(u)))
+                if (userIdentifiers.Any(u => !string.IsNullOrWhiteSpace(u) && users.Contains(u)))
                 {
                     return true;
                 }
@@ -367,6 +377,12 @@ builder.Services.AddAuthorization(options =>
             return false;
         });
     });
+}
+
+builder.Services.AddAuthorization(options =>
+{
+    AddReportePolicy(options, "ReporteAbrahamPolicy", allowedProviders, allowedUsers);
+    AddReportePolicy(options, "ReporteMarcoPolicy", allowedMarcoProviders, allowedMarcoUsers);
 });
 
 var app = builder.Build();

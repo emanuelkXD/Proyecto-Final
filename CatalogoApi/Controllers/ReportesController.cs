@@ -144,4 +144,130 @@ public class ReportesController : ControllerBase
 
         return Ok(reporte);
     }
+
+    /// <summary>
+    /// Reporte autorizado de comunidad (Marco Antonio Arias Giron).
+    /// Combina resenas, listas_reproduccion, favoritos y premios activos.
+    /// </summary>
+    [HttpGet("comunidad-marco")]
+    [Authorize(Policy = "ReporteMarcoPolicy")]
+    public async Task<ActionResult<ReporteComunidadMarcoDto>> GetReporteComunidadMarco()
+    {
+        var resenas = await _context.Resenas
+            .AsNoTracking()
+            .Where(r => r.Activo)
+            .Select(r => new { r.TituloObra, r.Puntuacion })
+            .ToListAsync();
+
+        var favoritos = await _context.Favoritos
+            .AsNoTracking()
+            .Where(f => f.Activo)
+            .Select(f => new { f.TituloObra })
+            .ToListAsync();
+
+        var premios = await _context.Premios
+            .AsNoTracking()
+            .Where(p => p.Activo)
+            .OrderByDescending(p => p.Anio)
+            .Select(p => new { p.ObraGanadora, p.Nombre, p.CategoriaPremio, p.Anio })
+            .ToListAsync();
+
+        var listas = await _context.ListasReproduccion
+            .AsNoTracking()
+            .Where(l => l.Activo)
+            .OrderBy(l => l.Nombre)
+            .Select(l => new ReporteListaResumenDto
+            {
+                Id = l.Id,
+                Nombre = l.Nombre,
+                Propietario = l.Propietario,
+                EsPublica = l.EsPublica,
+                Descripcion = l.Descripcion
+            })
+            .ToListAsync();
+
+        var resenasPorObra = resenas
+            .GroupBy(r => r.TituloObra.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => g.Key,
+                g => new
+                {
+                    DisplayTitle = g.First().TituloObra.Trim(),
+                    Cantidad = g.Count(),
+                    Promedio = Math.Round(g.Average(x => x.Puntuacion), 2)
+                },
+                StringComparer.OrdinalIgnoreCase);
+
+        var favoritosPorObra = favoritos
+            .GroupBy(f => f.TituloObra.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => g.Key,
+                g => new
+                {
+                    DisplayTitle = g.First().TituloObra.Trim(),
+                    Cantidad = g.Count()
+                },
+                StringComparer.OrdinalIgnoreCase);
+
+        var premiosPorObra = premios
+            .GroupBy(p => p.ObraGanadora.Trim(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => g.Key,
+                g => new
+                {
+                    DisplayTitle = g.First().ObraGanadora.Trim(),
+                    Cantidad = g.Count(),
+                    Lista = g.Select(p => $"{p.Nombre} - {p.CategoriaPremio} ({p.Anio})").ToList()
+                },
+                StringComparer.OrdinalIgnoreCase);
+
+        var todasLasObras = resenasPorObra.Keys
+            .Concat(favoritosPorObra.Keys)
+            .Concat(premiosPorObra.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(t => t, StringComparer.OrdinalIgnoreCase);
+
+        var desglosePorObra = new List<ReporteObraComunidadDto>();
+        foreach (var clave in todasLasObras)
+        {
+            resenasPorObra.TryGetValue(clave, out var rInfo);
+            favoritosPorObra.TryGetValue(clave, out var fInfo);
+            premiosPorObra.TryGetValue(clave, out var pInfo);
+
+            var tituloDisplay = rInfo?.DisplayTitle ?? fInfo?.DisplayTitle ?? pInfo?.DisplayTitle ?? clave;
+
+            desglosePorObra.Add(new ReporteObraComunidadDto
+            {
+                TituloObra = tituloDisplay,
+                CantidadResenas = rInfo?.Cantidad ?? 0,
+                PromedioPuntuacion = rInfo?.Promedio ?? 0,
+                CantidadFavoritos = fInfo?.Cantidad ?? 0,
+                CantidadPremios = pInfo?.Cantidad ?? 0,
+                Premios = pInfo?.Lista ?? new List<string>()
+            });
+        }
+
+        var reporte = new ReporteComunidadMarcoDto
+        {
+            Autor = "Marco Antonio Arias Giron",
+            Tablas = new List<string> { "resenas", "listas_reproduccion", "favoritos", "premios" },
+            Proposito = "Consolidado de actividad de la comunidad combinando reseñas, favoritos, premios ganados y listas de reproducción activas por obra.",
+            GeneradoEn = DateTime.UtcNow,
+            Resumen = new ReporteComunidadResumenDto
+            {
+                TotalResenas = resenas.Count,
+                PromedioPuntuacionResenas = resenas.Count > 0
+                    ? Math.Round(resenas.Average(r => r.Puntuacion), 2)
+                    : 0,
+                TotalFavoritos = favoritos.Count,
+                TotalPremios = premios.Count,
+                TotalListasReproduccion = listas.Count,
+                ListasPublicas = listas.Count(l => l.EsPublica)
+            },
+            DesglosePorObra = desglosePorObra,
+            ListasReproduccion = listas
+        };
+
+        return Ok(reporte);
+    }
 }

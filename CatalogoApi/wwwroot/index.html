@@ -449,6 +449,19 @@
             </div>
         </section>
 
+        <!-- Reporte Autorizado — Comunidad (Marco Arias) -->
+        <section class="section-box" id="reporte-marco-container">
+            <h2 class="section-title">Reporte Autorizado — Comunidad (Marco Arias)</h2>
+            <div class="section-actions">
+                <button type="button" class="btn btn-scalar" id="btn-load-reporte-marco" onclick="loadReporteMarco()">
+                    Consultar Reporte /api/reportes/comunidad-marco
+                </button>
+            </div>
+            <div id="reporte-marco-result">
+                <p class="status-note">Combina reseñas, listas de reproducción, favoritos y premios activos. Requiere sesión con Dropbox o Slack (o usuario autorizado).</p>
+            </div>
+        </section>
+
         <!-- Enlaces legales y documentación -->
         <footer style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color); font-size: 0.85rem; color: var(--text-muted); display: flex; justify-content: center; align-items: center; gap: 1rem; flex-wrap: wrap;">
             <a href="/terms.html" style="color: var(--text-muted); text-decoration: none; transition: color 0.2s;" onmouseover="this.style.color='#3b82f6'" onmouseout="this.style.color='var(--text-muted)'">Términos de Servicio</a>
@@ -717,6 +730,161 @@
                     <div class="result-box">
                         <span class="badge badge-error">Error de red</span>
                         <p class="status-note">No se pudo conectar con /api/reportes/catalogo-abraham.</p>
+                    </div>
+                `;
+            }
+        }
+
+        async function loadReporteMarco() {
+            const resultContainer = document.getElementById('reporte-marco-result');
+            resultContainer.innerHTML = `<p class="status-note">Consultando reporte de comunidad...</p>`;
+
+            try {
+                const response = await fetch(`${API_URL}/api/reportes/comunidad-marco`, {
+                    credentials: 'include'
+                });
+
+                if (response.status === 401) {
+                    resultContainer.innerHTML = `
+                        <div class="result-box">
+                            <span class="badge badge-error">HTTP 401 Unauthorized — Sin sesión</span>
+                            <p class="status-note">No has iniciado sesión. Autentícate con Dropbox o Slack para consultar este reporte.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                if (response.status === 403) {
+                    resultContainer.innerHTML = `
+                        <div class="result-box">
+                            <span class="badge badge-warning">HTTP 403 Forbidden — Sin permisos</span>
+                            <p class="status-note">Tienes una sesión activa, pero tu proveedor o usuario no está autorizado por ReporteMarcoPolicy en el backend.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                if (!response.ok) {
+                    resultContainer.innerHTML = `
+                        <div class="result-box">
+                            <span class="badge badge-error">HTTP ${response.status} ${escapeHtml(response.statusText || '')}</span>
+                            <p class="status-note">No se pudo generar el reporte de comunidad.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                const data = await response.json();
+                const resumen = data.resumen || {};
+                const obras = Array.isArray(data.desglosePorObra) ? data.desglosePorObra : [];
+                const listas = Array.isArray(data.listasReproduccion) ? data.listasReproduccion : [];
+                const tablas = Array.isArray(data.tablas) ? data.tablas.join(', ') : '';
+                const generadoEn = data.generadoEn ? new Date(data.generadoEn).toLocaleString() : '';
+
+                const obrasRowsHtml = obras.length > 0
+                    ? obras.map(item => {
+                        const premios = Array.isArray(item.premios) && item.premios.length > 0
+                            ? escapeHtml(item.premios.join(' | '))
+                            : '<em>Sin premios</em>';
+
+                        return `
+                            <tr>
+                                <td><strong>${escapeHtml(item.tituloObra)}</strong></td>
+                                <td class="num">${escapeHtml(item.cantidadResenas)}</td>
+                                <td class="num">${escapeHtml(item.promedioPuntuacion)}</td>
+                                <td class="num">${escapeHtml(item.cantidadFavoritos)}</td>
+                                <td class="num">${escapeHtml(item.cantidadPremios)}</td>
+                                <td>${premios}</td>
+                            </tr>
+                        `;
+                    }).join('')
+                    : `<tr><td colspan="6"><em>No hay reseñas, favoritos ni premios activos registrados.</em></td></tr>`;
+
+                const listasRowsHtml = listas.length > 0
+                    ? listas.map(l => `
+                        <tr>
+                            <td><strong>${escapeHtml(l.nombre)}</strong></td>
+                            <td>${escapeHtml(l.propietario)}</td>
+                            <td>${l.esPublica ? 'Pública' : 'Privada'}</td>
+                            <td>${escapeHtml(l.descripcion || '—')}</td>
+                        </tr>
+                    `).join('')
+                    : `<tr><td colspan="4"><em>No hay listas de reproducción activas registradas.</em></td></tr>`;
+
+                resultContainer.innerHTML = `
+                    <div class="result-box">
+                        <span class="badge badge-success">HTTP 200 OK — Acceso permitido</span>
+                        <p class="status-note" style="margin-top: 0.75rem;">
+                            <strong>Autor:</strong> ${escapeHtml(data.autor)}<br>
+                            <strong>Tablas:</strong> ${escapeHtml(tablas)}<br>
+                            <strong>Propósito:</strong> ${escapeHtml(data.proposito)}<br>
+                            <strong>Generado en:</strong> ${escapeHtml(generadoEn)}
+                        </p>
+
+                        <div class="report-summary">
+                            <div class="summary-card">
+                                <span class="label">Reseñas</span>
+                                <span class="value">${escapeHtml(resumen.totalResenas ?? 0)}</span>
+                            </div>
+                            <div class="summary-card">
+                                <span class="label">Prom. Puntuación</span>
+                                <span class="value">${escapeHtml(resumen.promedioPuntuacionResenas ?? 0)} / 5</span>
+                            </div>
+                            <div class="summary-card">
+                                <span class="label">Favoritos</span>
+                                <span class="value">${escapeHtml(resumen.totalFavoritos ?? 0)}</span>
+                            </div>
+                            <div class="summary-card">
+                                <span class="label">Premios</span>
+                                <span class="value">${escapeHtml(resumen.totalPremios ?? 0)}</span>
+                            </div>
+                            <div class="summary-card">
+                                <span class="label">Listas (Públicas)</span>
+                                <span class="value">${escapeHtml(resumen.totalListasReproduccion ?? 0)} (${escapeHtml(resumen.listasPublicas ?? 0)})</span>
+                            </div>
+                        </div>
+
+                        <div class="table-wrap" style="margin-top: 1rem;">
+                            <table class="report-table">
+                                <thead>
+                                    <tr>
+                                        <th>Obra</th>
+                                        <th class="num">Reseñas</th>
+                                        <th class="num">Prom.</th>
+                                        <th class="num">Favoritos</th>
+                                        <th class="num">Premios</th>
+                                        <th>Detalle de premios</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${obrasRowsHtml}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="table-wrap" style="margin-top: 1rem;">
+                            <table class="report-table">
+                                <thead>
+                                    <tr>
+                                        <th>Lista de reproducción</th>
+                                        <th>Propietario</th>
+                                        <th>Visibilidad</th>
+                                        <th>Descripción</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${listasRowsHtml}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Error al cargar el reporte de Marco:', error);
+                resultContainer.innerHTML = `
+                    <div class="result-box">
+                        <span class="badge badge-error">Error de red</span>
+                        <p class="status-note">No se pudo conectar con /api/reportes/comunidad-marco.</p>
                     </div>
                 `;
             }
